@@ -17,9 +17,12 @@
     "start": "pcf-scripts start",
     "start:watch": "pcf-scripts start watch",
     "refreshTypes": "pcf-scripts refreshTypes",
-    "push": "pac pcf push --publisher-prefix ft"
+    "push": "pac pcf push --publisher-prefix ft",
+    "push:release": "pac pcf push --publisher-prefix ft --buildConfiguration Release"
   },
-  "dependencies": {},
+  "dependencies": {
+    "monaco-editor": "^0.55.1"
+  },
   "devDependencies": {
     "@eslint/js": "^9.25.1",
     "@microsoft/eslint-plugin-power-apps": "^0.2.51",

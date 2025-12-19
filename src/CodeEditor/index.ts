@@ -1,4 +1,6 @@
-
+import "../monacosetup.ts";
+import "../monacoLanguages.ts";
+import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import { IInputs, IOutputs } from "./generated/ManifestTypes";
 
 export class CodeEditor implements ComponentFramework.StandardControl<IInputs, IOutputs> {
@@ -10,20 +12,25 @@ export class CodeEditor implements ComponentFramework.StandardControl<IInputs, I
     }
 
     // Private fields for DOM elements and state
-    private _container: HTMLDivElement | null = null;
-    private _textArea: HTMLTextAreaElement | null = null;
-    private _notifyOutputChanged: (() => void) | null = null;
-    private _value = "";
+    private _container!: HTMLDivElement;
+    private _editorHost!: HTMLDivElement;
+    //eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private _editor: any;
+    //eslint-disable-next-line @typescript-eslint/no-inferrable-types
+    private _value: string = "";
+    private _notifyOutputChanged!: () => void;
     private _isTyping = false;
-    private _handler = () => {
-            this._isTyping = true;
-            this._value = this._textArea?.value ?? "";
-            this._notifyOutputChanged?.();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            window.clearTimeout((this as any)._typingTimer);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (this as any)._typingTimer = window.setTimeout(() => (this._isTyping = false), 400);
-        }
+    private _typingTimer?: number;
+
+    // private _handler = () => {
+    //     this._isTyping = true;
+    //     this._value = this._editor?.getValue() ?? "";
+    //     this._notifyOutputChanged?.();
+    //     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    //     window.clearTimeout((this as any)._typingTimer);
+    //     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    //     (this as any)._typingTimer = window.setTimeout(() => (this._isTyping = false), 400);
+    // }
     /**
      * Used to initialize the control instance. Controls can kick off remote server calls and other initialization actions here.
      * Data-set values are not initialized here, use updateView.
@@ -38,25 +45,45 @@ export class CodeEditor implements ComponentFramework.StandardControl<IInputs, I
         state: ComponentFramework.Dictionary,
         container: HTMLDivElement
     ): void {
-        // Add control initialization code
+        // Root Container
         this._container = container;
+        this._container.style.height = "100%";
+        this._container.style.width = "100%";
+
+        //Monaco Host
+        this._editorHost = document.createElement("div");
+        this._editorHost.style.height = "100%";
+        this._editorHost.style.width = "100%";
+        this._editorHost.style.minHeight = "220px"; // important for model-driven sections
+
+        this._container.appendChild(this._editorHost);
         this._notifyOutputChanged = notifyOutputChanged;
 
-        // Create textarea
-        this._textArea = document.createElement("textarea");
-        this._textArea.rows = 10;
-        this._textArea.cols = 80;
-        this._textArea.style.boxSizing = "border-box";
-        this._textArea.style.width = "100%";
-        this._textArea.placeholder = "Enter code...";
+        const initial = context.parameters.code.raw ?? "";
 
-        // Input listener updates internal value and notifies framework
-        this._textArea.addEventListener("input", this._handler);
+        this._editor = monaco.editor.create(this._editorHost, {
+            value: initial,
+            language: "json",             // Phase 1: start with json. We'll make it configurable later.
+            automaticLayout: true,        // essential in model-driven apps
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            wordWrap: "on",
+        });
 
-        // Append to container
-        if (this._container) {
-            this._container.appendChild(this._textArea);
-        }
+        this._value = initial;
+
+        // Change handler (debounced notifyOutputChanged)
+        this._editor.onDidChangeModelContent(() => {
+            this._isTyping = true;
+            this._value = this._editor.getValue();
+
+            // debounce notifyOutputChanged so save is smooth
+            if (this._typingTimer) window.clearTimeout(this._typingTimer);
+            this._typingTimer = window.setTimeout(() => {
+                this._isTyping = false;
+                this._notifyOutputChanged();
+            }, 350);
+        });
     }
 
 
@@ -65,27 +92,31 @@ export class CodeEditor implements ComponentFramework.StandardControl<IInputs, I
      * @param context The entire property bag available to control via Context Object; It contains values as set up by the customizer mapped to names defined in the manifest, as well as utility functions
      */
     public updateView(context: ComponentFramework.Context<IInputs>): void {
-        if (!this._textArea) return;
+        if (!this._editor) return;
 
         const incoming = context.parameters.code.raw ?? "";
 
-        // don't overwrite while user is actively typing unless it's actually different than our state
+        // don’t overwrite user while typing
         if (this._isTyping) return;
 
-        if (incoming !== this._textArea.value) {
+        // only update editor if different
+        if (incoming !== this._editor.getValue()) {
             this._value = incoming;
-            this._textArea.value = incoming;
+            this._editor.setValue(incoming);
         }
     }
+
 
     /**
      * It is called by the framework prior to a control receiving new data.
      * @returns an object based on nomenclature defined in manifest, expecting object[s] for property marked as "bound" or "output"
      */
     public getOutputs(): IOutputs {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return { code: this._value } as any;
+        return {
+            code: this._value,
+        };
     }
+
 
 
     /**
@@ -93,15 +124,10 @@ export class CodeEditor implements ComponentFramework.StandardControl<IInputs, I
      * i.e. cancelling any pending remote calls, removing listeners, etc.
      */
     public destroy(): void {
-        // Add code to cleanup control if necessary
-        if (this._textArea && this._container) {
-
-            this._textArea.removeEventListener("input", this._handler);
-            try { this._container.removeChild(this._textArea); } catch { /* ignore */ }
+        if (this._typingTimer) window.clearTimeout(this._typingTimer);
+        if (this._editor) {
+            this._editor.dispose();
         }
-
-        this._textArea = null;
-        this._container = null;
-        this._notifyOutputChanged = null;
     }
+
 }
